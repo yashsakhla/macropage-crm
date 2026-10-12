@@ -3,15 +3,16 @@ import { Link } from 'react-router-dom';
 import { Building2, ChevronRight, Eye, ExternalLink, LayoutGrid, List, Phone, Plus, Search } from 'lucide-react';
 import { useData } from '../../context/DataContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { LEAD_SOURCES, LEAD_STAGES } from '../../constants/index.js';
+import { LEAD_SOURCES, LEAD_STAGES, PLAN_MAP } from '../../constants/index.js';
 import { daysBetween, money, moneyShort, sum, todayISO, fmtDate } from '../../utils/format.js';
 import { Avatar, EmptyState } from '../../components/ui/index.jsx';
 import { LeadStageBadge } from '../../components/ui/StageBadge.jsx';
 import LeadFormModal from '../../components/leads/LeadFormModal.jsx';
 import ConvertModal from '../../components/leads/ConvertModal.jsx';
+import QuotationModal from '../../components/leads/QuotationModal.jsx';
 
 export default function Leads() {
-  const { data, moveLead } = useData();
+  const { data, leadStats, moveLead, run } = useData();
   const toast = useToast();
   const [view, setView] = useState('board');
   const [q, setQ] = useState('');
@@ -19,6 +20,7 @@ export default function Leads() {
   const [source, setSource] = useState('');
   const [form, setForm] = useState(null); // { lead?, stage? }
   const [convert, setConvert] = useState(null);
+  const [quote, setQuote] = useState(null);
   const [dragId, setDragId] = useState(null);
   const [over, setOver] = useState(null);
 
@@ -34,18 +36,16 @@ export default function Leads() {
     );
   }, [data.leads, q, owner, source]);
 
-  const open = data.leads.filter((l) => !['WON', 'CANCELLED'].includes(l.stage));
-  const won = data.leads.filter((l) => l.stage === 'WON');
-  const lost = data.leads.filter((l) => l.stage === 'CANCELLED');
-  const winRate = won.length + lost.length ? Math.round((won.length / (won.length + lost.length)) * 100) : 0;
+  // headline numbers come from GET /leads/stats
+  const stats = leadStats || { total: 0, inPipeline: 0, pipelineValue: 0, won: 0, wonValue: 0, cancelled: 0, winRate: 0 };
 
   const requestMove = (id, stage) => {
     const lead = data.leads.find((l) => l.id === id);
     if (!lead || lead.stage === stage) return;
     if (lead.projectId) return toast('This deal is already converted to a project', 'error');
     if (stage === 'WON') return setConvert(lead);
-    moveLead(id, stage);
-    toast(`Moved to “${LEAD_STAGES.find((s) => s.key === stage).label}”`);
+    if (stage === 'PROPOSAL') return setQuote({ lead, stage });
+    run(() => moveLead(id, stage), `Moved to “${LEAD_STAGES.find((s) => s.key === stage).label}”`);
   };
 
   const nextStage = (stage) => {
@@ -67,10 +67,10 @@ export default function Leads() {
       </div>
 
       <div className="stats" style={{ marginBottom: 16 }}>
-        <MiniStat label="Total leads" value={data.leads.length} sub="all time" />
-        <MiniStat label="In pipeline" value={open.length} sub={`${moneyShort(sum(open, (l) => l.value))} potential`} />
-        <MiniStat label="Deals won" value={won.length} sub={`${moneyShort(sum(won, (l) => l.value))} booked`} color="#16a34a" />
-        <MiniStat label="Win rate" value={`${winRate}%`} sub={`${lost.length} cancelled`} color="#f26522" />
+        <MiniStat label="Total leads" value={stats.total} sub="all time" />
+        <MiniStat label="In pipeline" value={stats.inPipeline} sub={`${moneyShort(stats.pipelineValue)} potential`} />
+        <MiniStat label="Deals won" value={stats.won} sub={`${moneyShort(stats.wonValue)} booked`} color="#16a34a" />
+        <MiniStat label="Win rate" value={`${stats.winRate}%`} sub={`${stats.cancelled} cancelled`} color="#f26522" />
       </div>
 
       <div className="toolbar">
@@ -185,6 +185,7 @@ export default function Leads() {
       )}
 
       {form && <LeadFormModal lead={form.lead} presetStage={form.stage} onClose={() => setForm(null)} />}
+      {quote && <QuotationModal lead={quote.lead} stage={quote.stage} onClose={() => setQuote(null)} />}
       {convert && <ConvertModal lead={convert} onClose={() => setConvert(null)} />}
     </>
   );
@@ -223,6 +224,11 @@ function LeadCard({ lead, owner, next, dragging, onOpen, onDragStart, onDragEnd,
       <h4>{lead.title}</h4>
       <div className="co"><Building2 size={13} /> {lead.company}</div>
       <div className="val">{money(lead.value)}</div>
+      {lead.quote && (
+        <div className="small muted" style={{ marginTop: 6 }}>
+          Quoted: <b style={{ color: PLAN_MAP.PRO.color }}>Pro {moneyShort(lead.quote.PRO)}</b> · <b style={{ color: PLAN_MAP.PREMIUM.color }}>Premium {moneyShort(lead.quote.PREMIUM)}</b>
+        </div>
+      )}
       <div className="row wrap" style={{ marginTop: 8, gap: 6 }}>
         <span className="tag">{lead.source}</span>
         {lead.phone && <span className="small muted row" style={{ gap: 4 }}><Phone size={11} />{lead.phone}</span>}

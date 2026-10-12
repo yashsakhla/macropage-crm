@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Building2, CalendarClock, LayoutGrid, List, Search } from 'lucide-react';
+import { Building2, CalendarClock, LayoutGrid, List, Plus, Search } from 'lucide-react';
 import { useData } from '../../context/DataContext.jsx';
-import { PROJECT_STAGES } from '../../constants/index.js';
+import { INTERNAL_STATUS_MAP, PLAN_MAP, PROJECT_STAGES } from '../../constants/index.js';
 import { fmtDate, money, moneyShort, sum } from '../../utils/format.js';
 import { isOngoing, isRunning, projectFinance, projectProgress } from '../../utils/metrics.js';
-import { EmptyState, ProgressBar } from '../../components/ui/index.jsx';
+import { Badge, EmptyState, ProgressBar } from '../../components/ui/index.jsx';
 import { ProjectStageBadge } from '../../components/ui/StageBadge.jsx';
+import InternalProjectModal from '../../components/projects/InternalProjectModal.jsx';
 
 export default function Projects() {
   const { data } = useData();
@@ -14,6 +15,8 @@ export default function Projects() {
   const [view, setView] = useState('board');
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState('all');
+  const [kind, setKind] = useState('client'); // client | internal
+  const [showNew, setShowNew] = useState(false);
 
   const list = useMemo(() => {
     const t = q.trim().toLowerCase();
@@ -32,8 +35,20 @@ export default function Projects() {
           <h1>Projects</h1>
           <p>Every confirmed deal lives here. Projects are created automatically when a lead is marked <b>Deal Won</b>.</p>
         </div>
-        <Link to="/admin/leads" className="btn btn-primary">Go to lead pipeline</Link>
+        {kind === 'client'
+          ? <Link to="/admin/leads" className="btn btn-primary">Go to lead pipeline</Link>
+          : <button className="btn btn-primary" onClick={() => setShowNew(true)}><Plus size={15} /> New internal project</button>}
       </div>
+
+      <div className="seg" style={{ marginBottom: 16 }}>
+        <button className={kind === 'client' ? 'on' : ''} onClick={() => setKind('client')}>Client projects ({data.projects.length})</button>
+        <button className={kind === 'internal' ? 'on' : ''} onClick={() => setKind('internal')}>Internal projects ({data.internalProjects.length})</button>
+      </div>
+
+      {kind === 'internal' ? (
+        <InternalList items={data.internalProjects} expenses={data.expenses} onNew={() => setShowNew(true)} navigate={navigate} />
+      ) : (
+      <>
 
       <div className="stats" style={{ marginBottom: 16 }}>
         <Mini label="Total projects" value={data.projects.length} />
@@ -73,7 +88,7 @@ export default function Projects() {
                 <div className="kcol-body">
                   {items.map((p) => (
                     <Link key={p.id} to={`/admin/projects/${p.id}`} className="kcard" style={{ cursor: 'pointer' }}>
-                      <h4>{p.name}</h4>
+                      <h4>{p.name} <PlanTag plan={p.plan} /></h4>
                       <div className="co"><Building2 size={13} /> {p.clientName}</div>
                       <div className="val">{money(p.contractValue)}</div>
                       <div style={{ marginTop: 10 }}><ProgressBar value={projectProgress(p)} thin /></div>
@@ -101,7 +116,7 @@ export default function Projects() {
                   const f = fin(p);
                   return (
                     <tr key={p.id} className="clickable" onClick={() => navigate(`/admin/projects/${p.id}`)}>
-                      <td><div className="bold">{p.name}</div><div className="small muted">{p.clientName}</div></td>
+                      <td><div className="bold">{p.name} <PlanTag plan={p.plan} /></div><div className="small muted">{p.clientName}</div></td>
                       <td><ProjectStageBadge stage={p.stage} /></td>
                       <td><div className="row"><div className="grow"><ProgressBar value={projectProgress(p)} thin /></div><b className="small">{projectProgress(p)}%</b></div></td>
                       <td className="nowrap">{fmtDate(p.endDate)}</td>
@@ -117,8 +132,49 @@ export default function Projects() {
           {!list.length && <EmptyState title="No projects" text="Mark a lead as Deal Won to create one." />}
         </div>
       )}
+      </>
+      )}
+      {showNew && <InternalProjectModal onClose={() => setShowNew(false)} onSaved={(id) => typeof id === 'string' && navigate(`/admin/internal-projects/${id}`)} />}
     </>
   );
+}
+
+function InternalList({ items, expenses, onNew, navigate }) {
+  const cost = (id) => sum(expenses.filter((e) => e.internalProjectId === id), (e) => e.amount);
+  return (
+    <>
+      <div className="stats" style={{ marginBottom: 16 }}>
+        <Mini label="Internal projects" value={items.length} />
+        <Mini label="Active" value={items.filter((p) => p.status === 'ACTIVE').length} color="#0ea5e9" />
+        <Mini label="Total internal cost" value={moneyShort(sum(items, (p) => cost(p.id)))} color="#dc2626" />
+      </div>
+      <div className="card">
+        {items.length ? (
+          <div className="table-wrap">
+            <table className="table">
+              <thead><tr><th>Project</th><th>Status</th><th>Timeline</th><th className="right">Budget</th><th className="right">Cost (expenses)</th></tr></thead>
+              <tbody>
+                {items.map((p) => (
+                  <tr key={p.id} className="clickable" onClick={() => navigate(`/admin/internal-projects/${p.id}`)}>
+                    <td><div className="bold">{p.name}</div>{p.description && <div className="small muted">{p.description}</div>}</td>
+                    <td><Badge color={INTERNAL_STATUS_MAP[p.status]?.color}>{INTERNAL_STATUS_MAP[p.status]?.label || p.status}</Badge></td>
+                    <td className="nowrap">{fmtDate(p.startDate)} → {fmtDate(p.endDate)}</td>
+                    <td className="right nowrap">{p.budget ? money(p.budget) : '—'}</td>
+                    <td className="right bold red nowrap">{money(cost(p.id))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : <EmptyState title="No internal projects" text="Track in-house work and its costs — every cost is booked as an expense." action={<button className="btn btn-primary" onClick={onNew}>New internal project</button>} />}
+      </div>
+    </>
+  );
+}
+
+export function PlanTag({ plan }) {
+  const p = PLAN_MAP[plan];
+  return p ? <Badge color={p.color}>{p.label}</Badge> : null;
 }
 
 function Mini({ label, value, color = '#12233f' }) {

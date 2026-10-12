@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, CheckCircle2, MessageSquareWarning } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext.jsx';
 import { useData } from '../../context/DataContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { daysBetween, fmtDate, money, todayISO } from '../../utils/format.js';
@@ -13,13 +12,12 @@ import DevProgress from '../../components/projects/DevProgress.jsx';
 
 export default function PortalProject() {
   const { id } = useParams();
-  const { user } = useAuth();
   const toast = useToast();
-  const { data, clientApprove, clientRequestChanges } = useData();
+  const { data, run, clientApprove, clientRequestChanges } = useData();
   const [changes, setChanges] = useState(null); // string while the dialog is open
 
   // customers can only open their own projects
-  const project = data.projects.find((p) => p.id === id && p.customerId === user.customerId);
+  const project = data.projects.find((p) => p.id === id);
   if (!project) {
     return (
       <div className="card">
@@ -30,7 +28,7 @@ export default function PortalProject() {
 
   const fin = projectFinance(project, data.payments, data.expenses);
   const payments = data.payments.filter((p) => p.projectId === id).sort((a, b) => b.date.localeCompare(a.date));
-  const team = project.team.map((sid) => data.staff.find((s) => s.id === sid)).filter(Boolean);
+  const team = project.teamMembers;
   const progress = projectProgress(project);
   const left = daysBetween(todayISO(), project.endDate);
   const needsApproval = project.stage === 'CLIENT_CONFIRMATION';
@@ -71,7 +69,7 @@ export default function PortalProject() {
           </div>
           <div className="row wrap">
             <button className="btn" onClick={() => setChanges('')}><MessageSquareWarning size={15} /> Request changes</button>
-            <button className="btn btn-green" onClick={() => { clientApprove(id); toast('Thank you! Project approved and closed 🎉'); }}>Approve & close project</button>
+            <button className="btn btn-green" onClick={() => run(() => clientApprove(id), 'Thank you! Project approved and closed 🎉')}>Approve & close project</button>
           </div>
         </div>
       )}
@@ -150,11 +148,10 @@ export default function PortalProject() {
               <button className="btn" onClick={() => setChanges(null)}>Cancel</button>
               <button
                 className="btn btn-primary"
-                onClick={() => {
+                onClick={async () => {
                   if (!changes.trim()) return toast('Please describe what needs to change', 'error');
-                  clientRequestChanges(id, changes.trim());
-                  setChanges(null);
-                  toast('Sent to the MACROPAGE team');
+                  const ok = await run(() => clientRequestChanges(id, changes.trim()), 'Sent to the MACROPAGE team');
+                  if (ok) setChanges(null);
                 }}
               >
                 Send to team

@@ -14,52 +14,62 @@ const EMPTY = {
   email: '',
   source: 'Website',
   value: '',
-  owner: 's7',
+  owner: '',
   stage: 'LEAD',
   expectedClose: addDaysISO(30),
   notes: '',
   customerId: '',
   visibleToClient: false,
   showValueToClient: false,
+  sendWhatsapp: false,
 };
 
+const NEW_CLIENT = '__new';
+
 export default function LeadFormModal({ lead, presetStage, onClose }) {
-  const { data, addLead, updateLead, moveLead, setLeadClientAccess, deleteLead } = useData();
+  const { data, addLead, updateLead, moveLead, setLeadClientAccess, deleteLead, run } = useData();
   const toast = useToast();
   const editing = Boolean(lead);
   const locked = Boolean(lead?.projectId); // converted leads keep their stage
-  const [f, setF] = useState(lead ? { ...EMPTY, ...lead } : { ...EMPTY, stage: presetStage || 'LEAD' });
+  const [f, setF] = useState(lead ? { ...EMPTY, ...lead } : { ...EMPTY, owner: data.staff[0]?.id || '', stage: presetStage || 'LEAD' });
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
   const setClient = (e) =>
     setF((s) => ({ ...s, customerId: e.target.value, ...(e.target.value ? {} : { visibleToClient: false, showValueToClient: false }) }));
   const setVisible = (e) =>
     setF((s) => ({ ...s, visibleToClient: e.target.checked, ...(e.target.checked ? {} : { showValueToClient: false }) }));
 
-  const submit = (e) => {
+  const hasClient = Boolean(f.customerId);
+
+  const submit = async (e) => {
     e.preventDefault();
     if (!f.title.trim() || !f.company.trim()) return toast('Requirement and company are required', 'error');
-    const { stageHistory, customerId, visibleToClient, showValueToClient, ...rest } = f;
+    const isNew = f.customerId === NEW_CLIENT;
+    if (isNew && (!f.contactName.trim() || !f.phone.trim())) return toast('Contact name and phone are needed to create a client account', 'error');
+    const { stageHistory, customerId, visibleToClient, showValueToClient, sendWhatsapp, ...rest } = f;
     const payload = { ...rest, value: Number(f.value) || 0 };
-    const access = { customerId, visibleToClient, showValueToClient };
-    if (editing) {
-      updateLead(lead.id, payload);
-      if (!locked) {
-        if (f.stage !== lead.stage) moveLead(lead.id, f.stage);
-        setLeadClientAccess(lead.id, access);
-      }
-      toast('Lead updated');
-    } else {
-      addLead({ ...payload, ...access, customerId: customerId || null, visibleToClient: Boolean(customerId && visibleToClient), showValueToClient: Boolean(customerId && visibleToClient && showValueToClient) });
-      toast('Lead created');
-    }
-    onClose();
+    const access = {
+      customerId,
+      visibleToClient,
+      showValueToClient,
+      sendWhatsapp,
+      ...(isNew ? { newClient: { name: f.contactName.trim(), phone: f.phone.trim(), email: f.email.trim() || undefined } } : {}),
+    };
+    const ok = editing
+      ? await run(async () => {
+          await updateLead(lead.id, payload);
+          if (!locked) {
+            if (f.stage !== lead.stage) await moveLead(lead.id, f.stage);
+            await setLeadClientAccess(lead.id, access);
+          }
+        }, 'Lead updated')
+      : await run(() => addLead({ ...payload, ...access }), 'Lead created');
+    if (ok) onClose();
   };
 
-  const remove = () => {
+  const remove = async () => {
     if (!window.confirm('Delete this lead permanently?')) return;
-    deleteLead(lead.id);
-    toast('Lead deleted');
-    onClose();
+    const ok = await run(() => deleteLead(lead.id), 'Lead deleted');
+    if (ok) onClose();
   };
 
   return (
@@ -125,11 +135,18 @@ export default function LeadFormModal({ lead, presetStage, onClose }) {
             <Field label="Client account">
               <select className="select" value={f.customerId || ''} onChange={setClient}>
                 <option value="">— None —</option>
-                {data.customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value={NEW_CLIENT}>＋ New client (use contact name &amp; phone above)</option>
+                {data.customers.map((c) => <option key={c.id} value={c.id}>{c.contactName || c.name} · {c.phone}</option>)}
               </select>
             </Field>
-            <label className="check" style={f.customerId ? undefined : { opacity: 0.55 }}>
-              <input type="checkbox" checked={f.visibleToClient} disabled={!f.customerId} onChange={setVisible} />
+            {f.customerId === NEW_CLIENT && (
+              <p className="small muted">
+                A client account will be created for <b>{f.contactName || 'the contact person'}</b> ({f.phone || 'phone required'}).
+                The client signs in to the portal with this phone number.
+              </p>
+            )}
+            <label className="check" style={hasClient ? undefined : { opacity: 0.55 }}>
+              <input type="checkbox" checked={f.visibleToClient} disabled={!hasClient} onChange={setVisible} />
               <span>Visible to client in their portal</span>
             </label>
             <label className="check" style={f.visibleToClient ? undefined : { opacity: 0.55 }}>
@@ -140,6 +157,10 @@ export default function LeadFormModal({ lead, presetStage, onClose }) {
                 onChange={(e) => setF((s) => ({ ...s, showValueToClient: e.target.checked }))}
               />
               <span>Show deal value to client</span>
+            </label>
+            <label className="check">
+              <input type="checkbox" checked={f.sendWhatsapp} onChange={(e) => setF((s) => ({ ...s, sendWhatsapp: e.target.checked }))} />
+              <span>Send WhatsApp message to client</span>
             </label>
             <p className="small muted">Client sees only the stage and timeline. Notes, source and owner stay private.</p>
           </div>

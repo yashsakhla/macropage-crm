@@ -1,8 +1,7 @@
 import { Link } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext.jsx';
 import { useData } from '../../context/DataContext.jsx';
 import { fmtDate, money } from '../../utils/format.js';
-import { clientDiscussions, discussionProgress, lastUpdate } from '../../utils/metrics.js';
+import { discussionProgress, lastUpdate } from '../../utils/metrics.js';
 import { Badge, EmptyState, ProgressBar } from '../../components/ui/index.jsx';
 import { LeadStageBadge } from '../../components/ui/StageBadge.jsx';
 
@@ -30,9 +29,8 @@ function DiscussionCard({ lead }) {
 }
 
 export default function PortalDiscussions() {
-  const { user } = useAuth();
   const { data } = useData();
-  const mine = clientDiscussions(data.leads, user.customerId);
+  const mine = data.discussions;
   const active = mine.filter((l) => l.stage !== 'CANCELLED');
   const closed = mine.filter((l) => l.stage === 'CANCELLED');
 

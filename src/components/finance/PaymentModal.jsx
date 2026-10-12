@@ -6,7 +6,7 @@ import { PAYMENT_MODES } from '../../constants/index.js';
 import { money, todayISO } from '../../utils/format.js';
 
 export default function PaymentModal({ presetProjectId, onClose }) {
-  const { data, addPayment } = useData();
+  const { data, addPayment, run } = useData();
   const toast = useToast();
   const [f, setF] = useState({
     projectId: presetProjectId || data.projects[0]?.id || '',
@@ -17,12 +17,12 @@ export default function PaymentModal({ presetProjectId, onClose }) {
   });
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!Number(f.amount) || Number(f.amount) <= 0) return toast('Enter a valid amount', 'error');
-    addPayment({ ...f, amount: Number(f.amount) });
-    toast(`Payment of ${money(f.amount)} recorded`);
-    onClose();
+    if (!f.projectId) return toast('Select a project', 'error');
+    const ok = await run(() => addPayment({ ...f, amount: Number(f.amount) }), `Payment of ${money(f.amount)} recorded`);
+    if (ok) onClose();
   };
 
   return (

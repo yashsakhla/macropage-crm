@@ -7,10 +7,14 @@ import { EXPENSE_CATEGORIES } from '../../constants/index.js';
 import { money, sum, todayISO } from '../../utils/format.js';
 
 // One person + one project + many category lines → saved as separate expense records.
-export default function ExpenseModal({ presetProjectId, onClose }) {
-  const { data, addExpenses } = useData();
+export default function ExpenseModal({ presetProjectId, presetInternalProjectId, onClose }) {
+  const { data, addExpenses, run } = useData();
   const toast = useToast();
-  const [projectId, setProjectId] = useState(presetProjectId || data.projects[0]?.id || '');
+  // target is "p:<clientProjectId>", "i:<internalProjectId>", "company" or "owner"
+  const [target, setTarget] = useState(
+    presetInternalProjectId ? `i:${presetInternalProjectId}` : presetProjectId ? `p:${presetProjectId}` : data.projects[0] ? `p:${data.projects[0].id}` : data.internalProjects[0] ? `i:${data.internalProjects[0].id}` : '',
+  );
+  const locked = Boolean(presetProjectId || presetInternalProjectId);
   const [userId, setUserId] = useState(data.staff[0]?.id || '');
   const [date, setDate] = useState(todayISO());
   const [rows, setRows] = useState([{ category: EXPENSE_CATEGORIES[0].key, amount: '', note: '' }]);
@@ -18,14 +22,24 @@ export default function ExpenseModal({ presetProjectId, onClose }) {
   const setRow = (i, k, v) => setRows((r) => r.map((x, n) => (n === i ? { ...x, [k]: v } : x)));
   const total = sum(rows, (r) => r.amount);
 
-  const submit = (e) => {
+  const isGeneral = target === 'company' || target === 'owner';
+  const targetBody = isGeneral
+    ? { scope: target.toUpperCase() }
+    : target.startsWith('i:')
+      ? { scope: 'INTERNAL_PROJECT', internalProjectId: target.slice(2) }
+      : { scope: 'PROJECT', projectId: target.slice(2) };
+
+  const submit = async (e) => {
     e.preventDefault();
     const valid = rows.filter((r) => Number(r.amount) > 0);
-    if (!projectId) return toast('Select a project', 'error');
+    if (!target) return toast('Select where this expense belongs', 'error');
     if (!valid.length) return toast('Add at least one amount', 'error');
-    addExpenses(valid.map((r) => ({ projectId, userId, date, category: r.category, amount: Number(r.amount), note: r.note })));
-    toast(`${valid.length} expense${valid.length > 1 ? 's' : ''} added · ${money(sum(valid, (r) => r.amount))}`);
-    onClose();
+    if (!userId && !isGeneral) return toast('Select a user', 'error');
+    const ok = await run(
+      () => addExpenses({ ...targetBody, userId, date, lines: valid }),
+      `${valid.length} expense${valid.length > 1 ? 's' : ''} added · ${money(sum(valid, (r) => r.amount))}`,
+    );
+    if (ok) onClose();
   };
 
   return (
@@ -43,13 +57,25 @@ export default function ExpenseModal({ presetProjectId, onClose }) {
     >
       <form id="expense-form" onSubmit={submit}>
         <div className="form-grid" style={{ marginBottom: 18 }}>
-          <Field label="Project">
-            <select className="select" value={projectId} onChange={(e) => setProjectId(e.target.value)} disabled={Boolean(presetProjectId)}>
-              {data.projects.map((p) => <option key={p.id} value={p.id}>{p.name} — {p.clientName}</option>)}
+          <Field label="Expense for">
+            <select className="select" value={target} onChange={(e) => setTarget(e.target.value)} disabled={locked}>
+              {!locked && (
+                <optgroup label="Not project-wise">
+                  <option value="company">Company expense</option>
+                  <option value="owner">Owner expense</option>
+                </optgroup>
+              )}
+              <optgroup label="Client projects">
+                {data.projects.map((p) => <option key={p.id} value={`p:${p.id}`}>{p.name} — {p.clientName}</option>)}
+              </optgroup>
+              <optgroup label="Internal projects">
+                {data.internalProjects.map((p) => <option key={p.id} value={`i:${p.id}`}>{p.name} (internal)</option>)}
+              </optgroup>
             </select>
           </Field>
-          <Field label="User (who spent / who it is for)">
+          <Field label={isGeneral ? 'User (optional)' : 'User (who spent / who it is for)'}>
             <select className="select" value={userId} onChange={(e) => setUserId(e.target.value)}>
+              {isGeneral && <option value="">— None —</option>}
               {data.staff.map((s) => <option key={s.id} value={s.id}>{s.name} — {s.role}</option>)}
             </select>
           </Field>

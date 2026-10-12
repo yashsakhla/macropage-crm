@@ -10,13 +10,13 @@ import './styles/global.css';
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <BrowserRouter>
-      <DataProvider>
+      <ToastProvider>
         <AuthProvider>
-          <ToastProvider>
+          <DataProvider>
             <App />
-          </ToastProvider>
+          </DataProvider>
         </AuthProvider>
-      </DataProvider>
+      </ToastProvider>
     </BrowserRouter>
   </React.StrictMode>,
 );

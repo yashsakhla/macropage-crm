@@ -1,10 +1,12 @@
 import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext.jsx';
+import { api } from '../../services/api.js';
+import { fromLead } from '../../services/mappers.js';
+import { useServer } from '../../hooks/useServer.js';
 import { useData } from '../../context/DataContext.jsx';
 import { LEAD_STAGES, LEAD_STAGE_MAP } from '../../constants/index.js';
 import { fmtDate, money } from '../../utils/format.js';
-import { clientDiscussions, discussionProgress } from '../../utils/metrics.js';
+import { discussionProgress } from '../../utils/metrics.js';
 import { Badge, EmptyState, ProgressBar } from '../../components/ui/index.jsx';
 import { LeadStageBadge } from '../../components/ui/StageBadge.jsx';
 import StageStepper from '../../components/projects/StageStepper.jsx';
@@ -26,11 +28,12 @@ const NEXT_TEXT = {
 
 export default function PortalDiscussion() {
   const { id } = useParams();
-  const { user } = useAuth();
   const { data } = useData();
 
-  // customers only see discussions admin linked to them and marked visible
-  const lead = clientDiscussions(data.leads, user.customerId).find((l) => l.id === id);
+  // GET /portal/discussions/:id (404 unless admin linked it to this customer and marked it visible);
+  // the list entry renders instantly while the detail (stage history) loads
+  const detail = useServer(`discussion:${id}`, async () => fromLead(await api.get(`/portal/discussions/${id}`)));
+  const lead = detail.value || data.discussions.find((l) => l.id === id);
   if (!lead) {
     return (
       <div className="card">

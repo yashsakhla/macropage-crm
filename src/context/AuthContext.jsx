@@ -1,32 +1,62 @@
-import { createContext, useContext, useMemo, useState } from 'react';
-import { useData } from './DataContext.jsx';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { api, setUnauthorizedHandler, tokens } from '../services/api.js';
+import { fromUser } from '../services/mappers.js';
 
-const KEY = 'macropage-crm-session';
 const AuthContext = createContext(null);
 
-// Demo-only auth against seeded users. Real auth = JWT from the NestJS backend.
+// JWT auth against the NestJS backend: POST /auth/login, GET /auth/me, POST /auth/logout.
+// Access/refresh tokens live in localStorage (see services/api.js); the user comes from the server, never from local data.
 export function AuthProvider({ children }) {
-  const { data } = useData();
-  const [userId, setUserId] = useState(() => localStorage.getItem(KEY));
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(tokens.hasSession());
 
-  const user = useMemo(() => data.users.find((u) => u.id === userId) || null, [data.users, userId]);
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      tokens.clear();
+      setUser(null);
+    });
+  }, []);
 
-  const login = (role, email, password) => {
-    const found = data.users.find(
-      (u) => u.role === role && u.email.toLowerCase() === email.trim().toLowerCase() && u.password === password,
-    );
-    if (!found) return { ok: false, error: 'Invalid email or password for this login type.' };
-    localStorage.setItem(KEY, found.id);
-    setUserId(found.id);
-    return { ok: true, user: found };
-  };
+  // restore the session on page load
+  useEffect(() => {
+    if (!tokens.hasSession()) return undefined;
+    let alive = true;
+    api
+      .get('/auth/me')
+      .then((u) => alive && setUser(fromUser(u.user ?? u)))
+      .catch(() => tokens.clear())
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, []);
 
-  const logout = () => {
-    localStorage.removeItem(KEY);
-    setUserId(null);
-  };
+  const login = useCallback(async (role, email, password) => {
+    try {
+      // customers sign in with the phone number their account was created with; admins with email
+      const id = email.trim();
+      const res = await api.login({ ...(role === 'customer' ? { phone: id } : { email: id }), password, role: role.toUpperCase() });
+      tokens.set(res);
+      const u = fromUser(res.user);
+      setUser(u);
+      return { ok: true, user: u };
+    } catch (e) {
+      return { ok: false, error: e.status === 401 || e.status === 403 ? 'Invalid email or password for this login type.' : e.message };
+    }
+  }, []);
 
-  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
+  const logout = useCallback(async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch {
+      /* token may already be expired — still sign out locally */
+    }
+    tokens.clear();
+    setUser(null);
+  }, []);
+
+  const value = useMemo(() => ({ user, loading, login, logout }), [user, loading, login, logout]);
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

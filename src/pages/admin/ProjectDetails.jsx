@@ -3,24 +3,28 @@ import { Link, useParams } from 'react-router-dom';
 import { ArrowLeft, CalendarClock, ChevronRight, ClipboardCheck, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { useData } from '../../context/DataContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
-import { CATEGORY_COLOR, PROJECT_STAGES } from '../../constants/index.js';
+import { CATEGORY_COLOR, LEAD_WORK_TYPES, PROJECT_STAGES, PROJECT_WORK_TYPES, WORK_STATUSES, WORK_STATUS_MAP } from '../../constants/index.js';
 import { daysBetween, fmtDate, money, todayISO } from '../../utils/format.js';
 import { groupSum, projectFinance, projectProgress } from '../../utils/metrics.js';
 import { Avatar, Badge, EmptyState, Field, HBars, ProgressBar, Tabs } from '../../components/ui/index.jsx';
 import { ProjectStageBadge } from '../../components/ui/StageBadge.jsx';
+import { PlanTag } from './Projects.jsx';
 import StageStepper from '../../components/projects/StageStepper.jsx';
 import DevProgress from '../../components/projects/DevProgress.jsx';
 import ExpenseModal from '../../components/finance/ExpenseModal.jsx';
 import PaymentModal from '../../components/finance/PaymentModal.jsx';
+import { useWorkLog } from '../../hooks/useWorkLog.js';
 
 export default function ProjectDetails() {
   const { id } = useParams();
   const toast = useToast();
-  const { data, updateProject, setProjectStage, setDev, toggleTeam, clientApprove, deletePayment, deleteExpense } = useData();
+  const { data, run, updateProject, setProjectStage, setDev, setTeam, recordClientApproval, deletePayment, deleteExpense } = useData();
   const [tab, setTab] = useState('overview');
   const [edit, setEdit] = useState(null);
   const [showExpense, setShowExpense] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
+  const work = useWorkLog();
+  const [wf, setWf] = useState({ staffId: '', scopes: ['project'], types: [], note: '', status: 'IN_PROGRESS' });
 
   const project = data.projects.find((p) => p.id === id);
   if (!project) {
@@ -42,22 +46,39 @@ export default function ProjectDetails() {
   const closed = project.stage === 'CLOSED';
   const left = daysBetween(todayISO(), project.endDate);
   const progress = projectProgress(project);
+  const leadId = project.leadId;
+  const workRows = work.entries.filter((w) => (w.scope === 'project' && w.refId === id) || (w.scope === 'lead' && leadId && w.refId === leadId));
+  const toggle = (k, v) => setWf((f) => ({ ...f, [k]: f[k].includes(v) ? f[k].filter((x) => x !== v) : [...f[k], v] }));
+  const toggleScope = (scope) =>
+    setWf((f) => {
+      const on = f.scopes.includes(scope);
+      return { ...f, scopes: on ? f.scopes.filter((x) => x !== scope) : [...f.scopes, scope], types: on ? f.types.filter((t) => !t.startsWith(`${scope}:`)) : f.types };
+    });
+  const addWork = (e) => {
+    e.preventDefault();
+    if (!wf.staffId) return toast('Pick a team member', 'error');
+    if (!wf.types.length) return toast('Select at least one work type', 'error');
+    wf.types.forEach((k) => {
+      const [scope, ...rest] = k.split(':');
+      work.add({ scope, refId: scope === 'lead' ? leadId : id, staffId: wf.staffId, type: rest.join(':'), note: wf.note.trim(), status: wf.status });
+    });
+    toast(`${wf.types.length} work item${wf.types.length > 1 ? 's' : ''} added`);
+    setWf((f) => ({ ...f, types: [], note: '' }));
+  };
 
   const changeStage = (key) => {
     if (key === project.stage) return;
     if (key === 'CLOSED' && !project.clientApproved) {
       return toast('Client confirmation is required before closing the project', 'error');
     }
-    setProjectStage(id, key);
-    toast(`Stage → ${PROJECT_STAGES.find((s) => s.key === key).label}`);
+    run(() => setProjectStage(id, key), `Stage → ${PROJECT_STAGES.find((s) => s.key === key).label}`);
   };
 
-  const saveEdit = () => {
+  const saveEdit = async () => {
     if (!Number(edit.contractValue)) return toast('Contract value is required', 'error');
     if (edit.endDate < edit.startDate) return toast('Deadline cannot be before start date', 'error');
-    updateProject(id, { ...edit, contractValue: Number(edit.contractValue) });
-    setEdit(null);
-    toast('Project details saved');
+    const ok = await run(() => updateProject(id, { ...edit, contractValue: Number(edit.contractValue) }), 'Project details saved');
+    if (ok) setEdit(null);
   };
 
   const timeline = closed
@@ -78,12 +99,13 @@ export default function ProjectDetails() {
             <div className="row wrap">
               <h1 style={{ fontSize: 22, fontWeight: 800 }}>{project.name}</h1>
               <ProjectStageBadge stage={project.stage} />
+              <PlanTag plan={project.plan} />
             </div>
             <div className="muted" style={{ marginTop: 4 }}>{project.clientName} · {fmtDate(project.startDate)} → {fmtDate(project.endDate)}</div>
           </div>
           <div className="row wrap">
             {project.stage === 'CLIENT_CONFIRMATION' && !project.clientApproved && (
-              <button className="btn btn-green" onClick={() => { clientApprove(id); toast('Client approval recorded — project closed 🎉'); }}>
+              <button className="btn btn-green" onClick={() => run(() => recordClientApproval(id), 'Client approval recorded — project closed 🎉')}>
                 <ClipboardCheck size={15} /> Record client approval
               </button>
             )}
@@ -152,6 +174,7 @@ export default function ProjectDetails() {
             { key: 'payments', label: `Payments (${payments.length})` },
             { key: 'expenses', label: `Expenses (${expenses.length})` },
             { key: 'team', label: `Team (${members.length})` },
+            { key: 'work', label: `Work status (${workRows.length})` },
           ]}
         />
 
@@ -260,7 +283,7 @@ export default function ProjectDetails() {
                         <tr key={p.id}>
                           <td>{fmtDate(p.date)}</td><td>{p.mode}</td><td className="muted">{p.note}</td>
                           <td className="right bold green">{money(p.amount)}</td>
-                          <td className="right"><button className="icon-btn" aria-label="Delete payment" onClick={() => window.confirm('Delete this payment?') && deletePayment(p.id)}><Trash2 size={15} /></button></td>
+                          <td className="right"><button className="icon-btn" aria-label="Delete payment" onClick={() => window.confirm('Delete this payment?') && run(() => deletePayment(p.id), 'Payment deleted')}><Trash2 size={15} /></button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -290,7 +313,7 @@ export default function ProjectDetails() {
                             <td><div className="row"><Avatar name={staff(e.userId)?.name} /> {staff(e.userId)?.name}</div></td>
                             <td><Badge color={CATEGORY_COLOR[e.category]}>{e.category}</Badge>{e.note && <div className="small muted">{e.note}</div>}</td>
                             <td className="right bold">{money(e.amount)}</td>
-                            <td className="right"><button className="icon-btn" aria-label="Delete expense" onClick={() => window.confirm('Delete this expense?') && deleteExpense(e.id)}><Trash2 size={15} /></button></td>
+                            <td className="right"><button className="icon-btn" aria-label="Delete expense" onClick={() => window.confirm('Delete this expense?') && run(() => deleteExpense(e.id), 'Expense deleted')}><Trash2 size={15} /></button></td>
                           </tr>
                         ))}
                       </tbody>
@@ -323,7 +346,7 @@ export default function ProjectDetails() {
               <div className="checks">
                 {data.staff.map((s) => (
                   <label key={s.id} className="check">
-                    <input type="checkbox" checked={project.team.includes(s.id)} onChange={() => toggleTeam(id, s.id)} />
+                    <input type="checkbox" checked={project.team.includes(s.id)} onChange={() => run(() => setTeam(id, project.team.includes(s.id) ? project.team.filter((x) => x !== s.id) : [...project.team, s.id]))} />
                     <Avatar name={s.name} />
                     <span>
                       <b>{s.name}</b>
@@ -333,6 +356,76 @@ export default function ProjectDetails() {
                 ))}
               </div>
             </div>
+          </div>
+        )}
+
+        {tab === 'work' && (
+          <div className="card">
+            <div className="card-head"><h3>Work status</h3></div>
+            <div className="card-body">
+              {members.length ? (
+                <form onSubmit={addWork} className="form-grid">
+                  <Field label="Team member">
+                    <select className="select" value={wf.staffId} onChange={(e) => setWf({ ...wf, staffId: e.target.value })}>
+                      <option value="">Select…</option>
+                      {members.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.role}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Status">
+                    <select className="select" value={wf.status} onChange={(e) => setWf({ ...wf, status: e.target.value })}>
+                      {WORK_STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Work on (select one or more)" full>
+                    <div className="chips">
+                      <button type="button" className={`chip ${wf.scopes.includes('project') ? 'on' : ''}`} onClick={() => toggleScope('project')}>Project (tech / delivery)</button>
+                      {leadId && <button type="button" className={`chip ${wf.scopes.includes('lead') ? 'on' : ''}`} onClick={() => toggleScope('lead')}>Client / lead (business)</button>}
+                    </div>
+                  </Field>
+                  {[['project', 'Project work types', PROJECT_WORK_TYPES], ['lead', 'Client work types', LEAD_WORK_TYPES]].filter(([sc]) => wf.scopes.includes(sc)).map(([sc, label, list]) => (
+                    <Field key={sc} label={`${label} (select one or more)`} full>
+                      <div className="chips">
+                        {list.map((t) => (
+                          <button key={t} type="button" className={`chip ${wf.types.includes(`${sc}:${t}`) ? 'on' : ''}`} onClick={() => toggle('types', `${sc}:${t}`)}>{t}</button>
+                        ))}
+                      </div>
+                    </Field>
+                  ))}
+                  <Field label="Description" full>
+                    <textarea className="textarea" rows={2} value={wf.note} onChange={(e) => setWf({ ...wf, note: e.target.value })} placeholder="What is being done…" />
+                  </Field>
+                  <div><button type="submit" className="btn btn-primary"><Plus size={15} /> Add work</button></div>
+                </form>
+              ) : (
+                <p className="muted">Assign team members first (Team tab), then describe their work here.</p>
+              )}
+            </div>
+            {workRows.length > 0 && (
+              <div className="table-wrap">
+                <table className="table">
+                  <thead><tr><th>Member</th><th>Work</th><th>Description</th><th>Status</th><th>Updated</th><th /></tr></thead>
+                  <tbody>
+                    {workRows.map((w) => {
+                      const m = staff(w.staffId);
+                      return (
+                        <tr key={w.id}>
+                          <td><div className="row"><Avatar name={m?.name || '?'} /><span className="bold">{m?.name || 'Removed'}</span></div></td>
+                          <td><div className="bold">{w.type}</div><div className="small muted">{w.scope === 'lead' ? 'Client / lead' : 'Project'}</div></td>
+                          <td className="small">{w.note || '—'}</td>
+                          <td>
+                            <select className="select" value={w.status} onChange={(e) => work.update(w.id, { status: e.target.value })} style={{ color: WORK_STATUS_MAP[w.status]?.color }}>
+                              {WORK_STATUSES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
+                            </select>
+                          </td>
+                          <td className="small nowrap">{fmtDate(w.updatedAt.slice(0, 10))}</td>
+                          <td className="right"><button className="icon-btn" aria-label="Delete" onClick={() => work.remove(w.id)}><Trash2 size={15} /></button></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -1,6 +1,3 @@
-export const uid = (prefix = 'id') =>
-  `${prefix}_${Math.random().toString(36).slice(2, 9)}${Date.now().toString(36).slice(-3)}`;
-
 const inr = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 });
 export const money = (n) => inr.format(Number(n) || 0);
 

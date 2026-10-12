@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Field, Modal } from '../ui/index.jsx';
+import { PROJECT_PLANS } from '../../constants/index.js';
 import { useData } from '../../context/DataContext.jsx';
 import { useToast } from '../../context/ToastContext.jsx';
 import { addDaysISO, money, todayISO } from '../../utils/format.js';
 
 // Deal Won → converts the lead into a project at the "Project Initiate" stage.
 export default function ConvertModal({ lead, onClose }) {
-  const { data, convertLeadToProject } = useData();
+  const { data, convertLeadToProject, run } = useData();
   const toast = useToast();
   const navigate = useNavigate();
 
@@ -15,23 +16,29 @@ export default function ConvertModal({ lead, onClose }) {
     || data.customers.find((c) => c.name.toLowerCase() === (lead.company || '').toLowerCase());
 
   const [f, setF] = useState({
-    contractValue: lead.value || '',
+    contractValue: lead.quote?.PRO || lead.value || '',
     startDate: addDaysISO(3),
     endDate: addDaysISO(90),
     customerId: existing?.id || '__new',
+    plan: 'PRO',
     description: '',
     requirements: lead.notes || '',
     team: [],
   });
   const set = (k) => (e) => setF((s) => ({ ...s, [k]: e.target.value }));
+  // picking a plan fills the contract value with the price quoted for it
+  const setPlan = (e) => {
+    const plan = e.target.value;
+    setF((s) => ({ ...s, plan, contractValue: lead.quote?.[plan] || s.contractValue }));
+  };
   const toggle = (id) => setF((s) => ({ ...s, team: s.team.includes(id) ? s.team.filter((x) => x !== id) : [...s.team, id] }));
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
     if (!Number(f.contractValue)) return toast('Enter the confirmed contract value', 'error');
     if (f.endDate < f.startDate) return toast('Deadline cannot be before start date', 'error');
-    const id = convertLeadToProject(lead.id, f);
-    toast('🎉 Deal won — project created at “Project Initiate”');
+    const id = await run(() => convertLeadToProject(lead.id, f), '🎉 Deal won — project created at “Project Initiate”');
+    if (!id) return;
     onClose();
     navigate(`/admin/projects/${id}`);
   };
@@ -57,6 +64,11 @@ export default function ConvertModal({ lead, onClose }) {
       <form id="convert-form" onSubmit={submit} className="form-grid">
         <Field label="Confirmed contract value (₹) *">
           <input className="input" type="number" min="0" value={f.contractValue} onChange={set('contractValue')} autoFocus />
+        </Field>
+        <Field label="Plan selected by client *">
+          <select className="select" value={f.plan} onChange={setPlan}>
+            {PROJECT_PLANS.map((p) => <option key={p.key} value={p.key}>{p.label}{lead.quote ? ` — quoted ${money(lead.quote[p.key])}` : ''}</option>)}
+          </select>
         </Field>
         <Field label="Client account">
           <select className="select" value={f.customerId} onChange={set('customerId')}>
@@ -91,7 +103,7 @@ export default function ConvertModal({ lead, onClose }) {
         </Field>
         {f.customerId === '__new' && lead.email && (
           <p className="small muted full">
-            A client portal login will be created for <b>{lead.email}</b> with the temporary password <b>welcome@123</b> (demo behaviour — the real backend sends an invite email).
+            A client portal login will be created for <b>{lead.email}</b> and an invite sent with a temporary password.
           </p>
         )}
       </form>

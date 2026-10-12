@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { Briefcase, FolderKanban, LayoutDashboard, LogOut, Menu, MessagesSquare, Target, Wallet } from 'lucide-react';
+import logo from '../../assets/logo.png';
+import { Briefcase, FolderKanban, LayoutDashboard, LogOut, Menu, MessagesSquare, Target, Users, Wallet } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useData } from '../../context/DataContext.jsx';
-import { clientDiscussions } from '../../utils/metrics.js';
-import { Avatar } from '../ui/index.jsx';
+import { Avatar, PageStatus } from '../ui/index.jsx';
 
 const NAV = {
   admin: [
@@ -12,6 +12,7 @@ const NAV = {
     { to: '/admin/leads', label: 'Lead Generation', icon: Target },
     { to: '/admin/projects', label: 'Projects', icon: FolderKanban },
     { to: '/admin/finance', label: 'Finance', icon: Wallet },
+    { to: '/admin/hustlers', label: 'Hustlers', icon: Users },
   ],
   customer: [
     { to: '/portal', label: 'My Projects', icon: Briefcase, end: true },
@@ -24,14 +25,13 @@ export default function AppLayout() {
   const [open, setOpen] = useState(false);
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { data } = useData();
+  const { data, ready, error, refresh } = useData();
   const items = NAV[user.role];
   const current = [...items].sort((a, b) => b.to.length - a.to.length).find((i) => pathname.startsWith(i.to)) || items[0];
-  const activeDiscussions =
-    user.role === 'customer' ? clientDiscussions(data.leads, user.customerId).filter((l) => l.stage !== 'CANCELLED').length : 0;
+  const activeDiscussions = data.discussions.filter((l) => l.stage !== 'CANCELLED').length;
 
-  const doLogout = () => {
-    logout();
+  const doLogout = async () => {
+    await logout();
     navigate('/login');
   };
 
@@ -40,11 +40,8 @@ export default function AppLayout() {
       <div className={`scrim ${open ? 'open' : ''}`} onClick={() => setOpen(false)} />
       <aside className={`sidebar ${open ? 'open' : ''}`}>
         <div className="brand">
-          <div className="brand-logo">M</div>
-          <div>
-            <b>MACROPAGE</b>
-            <span>{user.role === 'admin' ? 'CRM · Admin' : 'Client Portal'}</span>
-          </div>
+          <img className="brand-img" src={logo} alt="Macropage" />
+          <span>{user.role === 'admin' ? 'CRM · Admin' : 'Client Portal'}</span>
         </div>
         <nav className="nav">
           {items.map((i) => (
@@ -81,7 +78,7 @@ export default function AppLayout() {
           </div>
         </header>
         <main className="content">
-          <Outlet />
+          {ready ? <Outlet /> : <PageStatus ready={ready} error={error} onRetry={refresh} />}
         </main>
       </div>
     </div>

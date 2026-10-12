@@ -1,32 +1,30 @@
+import logo from '../assets/logo.png';
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { CheckCircle2, Shield, User } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 
-const DEMO = {
-  admin: { email: 'admin@macropage.in', password: 'admin123' },
-  customer: { email: 'client@demo.com', password: 'client123' },
-};
-
 export default function Login() {
   const { user, login } = useAuth();
   const [role, setRole] = useState('admin');
-  const [email, setEmail] = useState(DEMO.admin.email);
-  const [password, setPassword] = useState(DEMO.admin.password);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   if (user) return <Navigate to={user.role === 'admin' ? '/admin/dashboard' : '/portal'} replace />;
 
   const pick = (r) => {
     setRole(r);
-    setEmail(DEMO[r].email);
-    setPassword(DEMO[r].password);
     setError('');
   };
 
-  const submit = (e) => {
+  const submit = async (e) => {
     e.preventDefault();
-    const res = login(role, email, password);
+    setBusy(true);
+    setError('');
+    const res = await login(role, email, password);
+    setBusy(false);
     if (!res.ok) setError(res.error);
   };
 
@@ -34,11 +32,8 @@ export default function Login() {
     <div className="login-wrap">
       <section className="login-hero">
         <div className="brand" style={{ padding: 0 }}>
-          <div className="brand-logo">M</div>
-          <div>
-            <b>MACROPAGE</b>
-            <span>by MR Tech Solutions Pvt. Ltd.</span>
-          </div>
+          <img className="brand-img" src={logo} alt="Macropage" />
+          <span>by MR Tech Solutions Pvt. Ltd.</span>
         </div>
         <div style={{ position: 'relative', zIndex: 1 }}>
           <h1>
@@ -75,27 +70,25 @@ export default function Login() {
           <div className="stack">
             {error && <div className="err">{error}</div>}
             <div className="field">
-              <label>Email</label>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required autoFocus />
+              <label>{role === 'customer' ? 'Phone number' : 'Email'}</label>
+              <input
+                className="input"
+                key={role}
+                type={role === 'customer' ? 'tel' : 'email'}
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={role === 'customer' ? 'Number shared with Macropage' : undefined}
+                required
+                autoFocus
+              />
             </div>
             <div className="field">
               <label>Password</label>
               <input className="input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
             </div>
-            <button className="btn btn-primary" style={{ padding: '11px 14px' }}>
-              Sign in as {role === 'admin' ? 'Admin' : 'Customer'}
+            <button className="btn btn-primary" style={{ padding: '11px 14px' }} disabled={busy}>
+              {busy ? 'Signing in…' : `Sign in as ${role === 'admin' ? 'Admin' : 'Customer'}`}
             </button>
-          </div>
-
-          <div className="demo-box">
-            <b>Demo credentials (pre-filled)</b>
-            <div className="muted" style={{ marginTop: 4 }}>
-              Admin: admin@macropage.in / admin123
-              <br />
-              Customer: client@demo.com / client123
-              <br />
-              Customer 2: hotel@demo.com / client123
-            </div>
           </div>
         </form>
       </section>

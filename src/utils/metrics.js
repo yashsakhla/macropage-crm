@@ -19,11 +19,14 @@ export const devAverage = (p) => {
   return Math.round(sum(vals) / vals.length);
 };
 
-// In Progress spans 12% → 65% of the overall bar, driven by the four dev tracks
+// In Progress spans 12% → 65% of the overall bar, driven by the four dev tracks.
+// Same formula as the backend; computed locally for IN_PROGRESS so slider edits show instantly.
 export const projectProgress = (p) =>
-  p.stage === 'IN_PROGRESS' ? Math.round(12 + devAverage(p) * 0.53) : STAGE_BASE[p.stage] ?? 0;
+  p.stage === 'IN_PROGRESS' ? Math.round(12 + devAverage(p) * 0.53) : p.progress ?? STAGE_BASE[p.stage] ?? 0;
 
-export const projectFinance = (p, payments, expenses) => {
+// Prefer the finance block the server computed; fall back to the same formula over the loaded rows.
+export const projectFinance = (p, payments = [], expenses = []) => {
+  if (p.finance) return p.finance;
   const contract = Number(p.contractValue) || 0;
   const received = sum(payments.filter((x) => x.projectId === p.id), (x) => x.amount);
   const spent = sum(expenses.filter((x) => x.projectId === p.id), (x) => x.amount);
@@ -62,10 +65,6 @@ export const groupSum = (items, keyFn, valFn = (x) => x.amount) => {
   items.forEach((it) => map.set(keyFn(it), (map.get(keyFn(it)) || 0) + (Number(valFn(it)) || 0)));
   return [...map.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
 };
-
-// Leads an admin has linked to this customer and chosen to show in their portal (not yet converted)
-export const clientDiscussions = (leads, customerId) =>
-  leads.filter((l) => l.customerId === customerId && l.visibleToClient && !l.projectId && l.stage !== 'WON');
 
 const FUNNEL = ['LEAD', 'IDENTIFIED', 'GENERATED', 'QUALIFIED', 'DEMO', 'PROPOSAL', 'NEGOTIATION', 'VERBAL', 'PENDING'];
 

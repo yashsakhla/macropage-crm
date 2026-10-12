@@ -3,16 +3,16 @@ import { CalendarClock, CheckCircle2, FolderKanban, IndianRupee, MessagesSquare 
 import { useAuth } from '../../context/AuthContext.jsx';
 import { useData } from '../../context/DataContext.jsx';
 import { fmtDate, money, moneyShort, sum } from '../../utils/format.js';
-import { clientDiscussions, projectFinance, projectProgress } from '../../utils/metrics.js';
+import { projectFinance, projectProgress } from '../../utils/metrics.js';
 import { EmptyState, ProgressBar, StatCard } from '../../components/ui/index.jsx';
 import { ProjectStageBadge } from '../../components/ui/StageBadge.jsx';
 
 export default function PortalHome() {
   const { user } = useAuth();
   const { data } = useData();
-  const mine = data.projects.filter((p) => p.customerId === user.customerId);
+  const mine = data.projects; // the portal API only returns this customer's projects
   const fins = mine.map((p) => projectFinance(p, data.payments, data.expenses));
-  const activeDiscussions = clientDiscussions(data.leads, user.customerId).filter((l) => l.stage !== 'CANCELLED');
+  const activeDiscussions = data.discussions.filter((l) => l.stage !== 'CANCELLED');
   const awaiting = mine.filter((p) => p.stage === 'CLIENT_CONFIRMATION');
 
   return (

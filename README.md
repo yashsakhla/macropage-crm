@@ -2,7 +2,7 @@
 
 Lead generation → confirmed deals → projects → finance, with an Admin console and a Customer portal.
 
-- `frontend/` — React 18 + Vite (ready to run, works offline with demo data)
+- `frontend/` — React 18 + Vite, driven entirely by the REST API (no static data)
 - `BACKEND_PROMPT.md` — full prompt to generate the NestJS + Prisma + PostgreSQL backend
 
 ## Run the frontend
@@ -15,15 +15,7 @@ npm run dev        # opens http://localhost:5173
 
 Requires Node 18+.
 
-### Demo logins (pre-filled on the login screen)
-
-| Role     | Email               | Password   |
-| -------- | ------------------- | ---------- |
-| Admin    | admin@macropage.in  | admin123   |
-| Customer | client@demo.com     | client123  |
-| Customer | hotel@demo.com      | client123  |
-
-Demo data is stored in your browser's localStorage. To reset it, clear site data for localhost:5173 (or run `localStorage.clear()` in the console).
+The app needs the backend running (default `https://macropage-crm.onrender.com/api`; override with `VITE_API_URL` — see `.env.example`). Sign in with the accounts created by the backend seed script (`npm run seed` in the backend).
 
 ## What's inside
 
@@ -55,12 +47,12 @@ macropage-crm/
         ├── App.jsx                   # routes + role guards
         ├── styles/global.css         # MACROPAGE navy / orange theme
         ├── constants/index.js        # lead stages, project stages, dev tracks, expense categories
-        ├── data/seed.js              # fictional demo data
         ├── context/
-        │   ├── AuthContext.jsx       # login (admin / customer)
-        │   ├── DataContext.jsx       # all CRUD actions (localStorage) — swap for API calls
+        │   ├── AuthContext.jsx       # JWT login / session restore (admin / customer)
+        │   ├── DataContext.jsx       # server-backed store: loads from the API, every action = one endpoint
         │   └── ToastContext.jsx
-        ├── services/api.js           # fetch wrapper for the NestJS API (used after backend is live)
+        ├── services/api.js           # fetch wrapper: bearer token + automatic refresh
+        │   └── mappers.js        # API ⇄ UI shape mapping
         ├── utils/
         │   ├── format.js             # ₹ formatting, dates
         │   └── metrics.js            # progress %, project finance, monthly series
@@ -76,11 +68,8 @@ macropage-crm/
             └── customer/             # PortalHome, PortalProject
 ```
 
-## Connecting the NestJS backend later
+## Backend connection
 
-1. Generate the backend with `BACKEND_PROMPT.md` and run it on port 4000.
-2. Copy `frontend/.env.example` to `.env` (sets `VITE_API_URL`).
-3. In `src/context/DataContext.jsx`, replace each action body with the matching `api.post / api.patch / api.del` call from `src/services/api.js` (every action maps to one endpoint in the prompt), and load initial data with `api.get`.
-4. In `AuthContext.jsx`, call `POST /auth/login` and store the returned JWT.
-
-> Note: demo auth keeps passwords in browser storage purely for the offline demo. Real authentication must come from the backend (bcrypt + JWT).
+1. Run the NestJS backend (generated from `BACKEND_PROMPT.md`) on port 4000.
+2. Copy `.env.example` to `.env` and set `VITE_API_URL` (required for deployed builds, e.g. Vercel).
+3. Screens use these endpoints: Auth (`/auth/*`), Dashboard (`/dashboard`), Leads (`/leads*`), Projects (`/projects*`), Finance (`/finance/*`, `/payments`, `/expenses*`), Master data (`/staff`, `/customers`), Client portal (`/portal/projects*`, `/portal/discussions*`).

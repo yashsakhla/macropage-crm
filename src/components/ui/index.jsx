@@ -137,3 +137,18 @@ export function MonthBars({ series, format }) {
     </div>
   );
 }
+
+export function PageStatus({ ready, error, onRetry }) {
+  if (error) {
+    return (
+      <div className="card">
+        <div className="empty">
+          <h3>Could not load data</h3>
+          <p>{error}</p>
+          <button className="btn btn-primary" style={{ marginTop: 12 }} onClick={onRetry}>Retry</button>
+        </div>
+      </div>
+    );
+  }
+  return ready ? null : <div className="card"><div className="empty"><p>Loading…</p></div></div>;
+}
